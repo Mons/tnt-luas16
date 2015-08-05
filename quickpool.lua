@@ -125,10 +125,15 @@ function pool:connect()
 					local r,e = pcall(node.conn.eval,node.conn,"return box.info")
 					if r and e then
 						local uuid = e.server.uuid
+						local id = e.server.id
 						if node.uuid and uuid ~= node.uuid then
 							log.warn("server %s changed it's uuid %s -> %s",node.peer,node.uuid,uuid)
 						end
+						if node.id and id ~= node.id then
+							log.warn("server %s changed it's id %s -> %s",node.peer,node.id,id)
+						end
 						node.uuid = uuid
+						node.id = id
 						conn_generation = conn_generation + 1
 
 						--- TODO: if self then ...
@@ -172,6 +177,31 @@ function pool:connect()
 		end
 	end
 	--
+end
+
+function pool:_func(func_name, ...)
+	local results = {}
+	for zid,zone in pairs(self.zones) do
+		for _,node in pairs(zone.active) do
+			if (node.conn[func_name] == nil) then
+				print("function \'"..func_name.."\' not found in net.box connection")
+				return
+			end
+			local r,e = pcall(node.conn[func_name], node.conn, ...)
+			if r and e then
+				results[node.id] = e
+			end
+		end
+	end
+	return results
+end
+
+function pool:eval(...)
+	return self:_func('eval', ...)
+end
+
+function pool:call(...)
+	return self:_func('call', ...)
 end
 
 function pool:on_connected_one (node)

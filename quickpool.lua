@@ -8,7 +8,8 @@ local pool = obj.class({},'pool')
 function pool:_init(cfg)
 	local zones = {}
 	self.total = 0
-	self.timeout = self.timeout or 1
+	self.timeout = cfg.timeout or 1
+	self.func_timeout = cfg.func_timeout or 3
 	for _,srv in ipairs(cfg.servers) do
 		local login = srv.login or cfg.login
 		local password = srv.password or cfg.password
@@ -180,19 +181,40 @@ function pool:connect()
 end
 
 function pool:_func(func_name, ...)
+	
+	local result_ch = fiber.channel(1)
+	local requests_counter = 0
+	
 	local results = {}
 	for zid,zone in pairs(self.zones) do
 		for _,node in pairs(zone.active) do
 			if (node.conn[func_name] == nil) then
-				print("function \'"..func_name.."\' not found in net.box connection")
+				log.error("function \'"..func_name.."\' not found in net.box connection")
 				return
 			end
-			local r,e = pcall(node.conn[func_name], node.conn, ...)
-			if r and e then
-				results[node.id] = e
-			end
+			requests_counter = requests_counter + 1
+			local args = {...}
+			fiber.create(function()
+				fiber.self():name('fiber_[' .. func_name .. '];node.id=' .. node.id)
+				local r,e = pcall(node.conn[func_name], node.conn:timeout(self.func_timeout), unpack(args))
+				if r and e then
+					results[node.id] = e
+				else
+					log.error(string.format("%s, %s", r, e))
+				end
+				requests_counter = requests_counter - 1
+				if requests_counter == 0 then
+					result_ch:put(true)
+				end
+			end)
 		end
 	end
+	
+	local r = result_ch:get(2 * self.func_timeout)
+	if r == nil then
+		return nil
+	end
+	
 	return results
 end
 

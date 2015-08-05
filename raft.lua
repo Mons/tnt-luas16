@@ -45,6 +45,8 @@ local MS_TO_S = 1/1000 * 10 -- FIXME
 local M = obj.class({}, 'Raft')
 
 function M:_init(cfg)
+	self.name = cfg.name or 'default'
+	
 	self._election_fiber = nil
 	self._election_ch = fiber.channel(1)
 	self._current_election_timeout = 0
@@ -54,21 +56,30 @@ function M:_init(cfg)
 	self.HEARTBEAT_PERIOD = 100 * MS_TO_S
 	
 	self._pool = cp {
-		name = 'raft-pool',
+		name = 'raft-'.. self.name..'-pool',
 		login = cfg.login,
 		password = cfg.password,
 		servers = cfg.servers,
 	}
-	
 	self._pool.on_connected = bind(self._pool_on_connected, self)
 	self._pool.on_connected_one = bind(self._pool_on_connected_one, self)
 	self._pool.on_disconnect = bind(self._pool_on_disconnect, self)
 	
-	_G.raft = {
-		request_vote = bind(self.request_vote, self),
-		heartbeat = bind(self.heartbeat, self),
-		get_leader = bind(self.get_leader, self),
-	}
+	
+	self._request_vote_func_name = 'raft.' .. self.name .. '.request_vote'
+	self._hearbet_func_name = 'raft.' .. self.name .. '.heartbeat'
+	self._get_leader_func_name = 'raft.' .. self.name .. '.get_leader'
+	
+	if _G.raft == nil then
+		_G.raft = {}
+	end
+	if _G.raft[self.name] == nil then
+		_G.raft[self.name] = {
+			request_vote = bind(self.request_vote, self),
+			heartbeat = bind(self.heartbeat, self),
+			get_leader = bind(self.get_leader, self),
+		}
+	end
 	
 	self.S = {
 		FOLLOWER = 'follower',
@@ -87,7 +98,7 @@ end
 
 function M:start()
 	self._pool:connect()
-	self:start_election_timer()
+	-- self:start_election_timer()
 end
 
 function M:is_leader()
@@ -142,7 +153,7 @@ function M:_initiate_elections()
 	self._term = self._term + 1
 	self._state = self.S.CANDIDATE
 	
-	local r = self._pool:call("raft.request_vote", self._term, self._id, "ABRACADABRA")
+	local r = self._pool:call(self._request_vote_func_name, self._term, self._id, "ABRACADABRA")
 	for k,v in pairs(r) do print(k, v[1]) end
 	-- finding majority
 	for node_id,response in pairs(r) do
@@ -194,7 +205,7 @@ end
 function M:_heartbeater()
 	while true do
 		log.info("performing heartbeat")
-		local r = self._pool:call("raft.heartbeat", self._term, self._id, self._leader)
+		local r = self._pool:call(self._hearbet_func_name, self._term, self._id, self._leader)
 		fiber.sleep(self.HEARTBEAT_PERIOD)
 	end
 end
@@ -229,9 +240,9 @@ end
 
 function M:_pool_on_connected_one(node)
 	log.info('on_connected_one %s : %s!',node.peer,node.uuid)
-	-- if node.id ~= self._id then
-	-- 	self:start_election_timer()
-	-- end
+	if node.id ~= self._id then
+		self:start_election_timer()
+	end
 end
 
 function M:_pool_on_connected()
@@ -242,6 +253,7 @@ function M:_pool_on_disconnect()
 	log.info('on_disconnect all!')
 	
 end
+
 
 return M
 

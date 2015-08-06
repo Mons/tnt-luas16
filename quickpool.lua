@@ -200,7 +200,7 @@ function pool:_func(func_name, ...)
 				if r and e then
 					results[node.id] = e
 				else
-					log.error(string.format("%s, %s", r, e))
+					log.error("%s, %s", r, e)
 				end
 				requests_counter = requests_counter - 1
 				if requests_counter == 0 then

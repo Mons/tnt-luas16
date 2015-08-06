@@ -53,6 +53,7 @@ function M:_init(cfg)
 	self._election_timer_active = false
 	
 	self._heartbeat_fiber = nil
+	self._heartbeater_active = false
 	self.HEARTBEAT_PERIOD = 100 * MS_TO_S
 	
 	self._pool = cp {
@@ -98,7 +99,17 @@ end
 
 function M:start()
 	self._pool:connect()
-	-- self:start_election_timer()
+	self:start_election_timer()
+	
+	--- <debug fiber> ---
+	self.__debug_fiber = fiber.create(function()
+		while true do
+			fiber.self():name("debug_fiber")
+			log.info("id=%d; state=%s; term=%d; leader=%s", self._id, self._state, self._term, self._leader)
+			fiber.sleep(5)
+		end
+	end)
+	--- </debug fiber> ---
 end
 
 function M:is_leader()
@@ -163,11 +174,11 @@ function M:_initiate_elections()
 		self._vote_count = self._vote_count + vote
 	end
 	
-	log.info(string.format("resulting votes count: %d/%d", self._vote_count, self._nodes_count))
+	log.info("resulting votes count: %d/%d", self._vote_count, self._nodes_count)
 	
 	if self._vote_count > self._nodes_count / 2 then
 		-- elections won
-		log.info(string.format("node %d won elections", self._id))
+		log.info("node %d won elections", self._id)
 		self._state = self.S.LEADER
 		self._leader = self._id
 		self._vote_count = 0
@@ -175,7 +186,7 @@ function M:_initiate_elections()
 		self:start_heartbeater()
 	else
 		-- elections lost
-		log.info(string.format("node %d lost elections", self._id))
+		log.info("node %d lost elections", self._id)
 		self._state = self.S.FOLLOWER
 		self._leader = nil
 		self._vote_count = 0
@@ -192,6 +203,7 @@ end
 
 function M:stop_heartbeater()
 	if self._heartbeat_fiber then
+		self._heartbeater_active = false
 		self._heartbeat_fiber:cancel()
 		self._heartbeat_fiber = nil
 	end
@@ -203,7 +215,8 @@ function M:restart_heartbeater()
 end
 
 function M:_heartbeater()
-	while true do
+	self._heartbeater_active = true
+	while self._heartbeater_active do
 		log.info("performing heartbeat")
 		local r = self._pool:call(self._hearbet_func_name, self._term, self._id, self._leader)
 		fiber.sleep(self.HEARTBEAT_PERIOD)
@@ -221,14 +234,14 @@ function M:request_vote(term, id, candidate)
 	else
 		res = "nack"
 	end
-	log.info(string.format("--> request_vote: term = %d; id = %d; res = %s", term, id, res))
+	log.info("--> request_vote: term = %d; id = %d; res = %s", term, id, res)
 	return res
 end
 
 function M:heartbeat(term, id, leader_id)
 	local res = "ack"
 	if self._id ~= id and self._term <= term then
-		log.info(string.format("--> heartbeat: term = %d; id = %d; leader_id = %d; res = %s", term, id, leader_id, res))
+		log.info("--> heartbeat: term = %d; id = %d; leader_id = %d; res = %s", term, id, leader_id, res)
 		self:reset_election_timer()
 		self._term = term
 		self._leader = leader_id
@@ -240,9 +253,9 @@ end
 
 function M:_pool_on_connected_one(node)
 	log.info('on_connected_one %s : %s!',node.peer,node.uuid)
-	if node.id ~= self._id then
-		self:start_election_timer()
-	end
+	-- if node.id ~= self._id and not self._heartbeater_active then
+	-- 	self:start_election_timer()
+	-- end
 end
 
 function M:_pool_on_connected()

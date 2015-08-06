@@ -185,6 +185,7 @@ function pool:_func(func_name, ...)
 	local result_ch = fiber.channel(1)
 	local requests_counter = 0
 	
+	local args = {...}
 	local results = {}
 	for zid,zone in pairs(self.zones) do
 		for _,node in pairs(zone.active) do
@@ -193,12 +194,11 @@ function pool:_func(func_name, ...)
 				return
 			end
 			requests_counter = requests_counter + 1
-			local args = {...}
 			fiber.create(function()
 				fiber.self():name('fiber_[' .. func_name .. '];node.id=' .. node.id)
 				local r,e = pcall(node.conn[func_name], node.conn:timeout(self.func_timeout), unpack(args))
 				if r and e then
-					results[node.id] = e
+					results[node.uuid] = e
 				else
 					log.error("%s, %s", r, e)
 				end

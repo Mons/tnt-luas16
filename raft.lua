@@ -3,9 +3,12 @@
 -- r = raft({
 -- 	login = 'repler',
 -- 	password = 'repler',
+-- 	debug = true,
 -- 	servers = {
--- 		{ uri = '127.0.0.1:3313' },
--- 		{ uri = '127.0.0.2:3313' },
+--		{ uri = '127.0.0.1:3303' },
+--		{ uri = '127.0.0.2:3303' },
+--		{ uri = '127.0.0.3:3303' },
+--		{ uri = '127.0.0.4:3303' },
 -- 	},
 -- })
 
@@ -17,6 +20,7 @@ local log = require('log')
 local uuid = require('uuid')
 local fiber = require('fiber')
 local obj = require('obj')
+local yaml = require('yaml')
 
 local function bind(func, object)
     return function(...) return func(object, ...) end
@@ -46,6 +50,7 @@ local M = obj.class({}, 'Raft')
 
 function M:_init(cfg)
 	self.name = cfg.name or 'default'
+	self.debug = cfg.debug or false
 	
 	self._election_fiber = nil
 	self._election_ch = fiber.channel(1)
@@ -68,19 +73,22 @@ function M:_init(cfg)
 	
 	
 	self._request_vote_func_name = 'raft.' .. self.name .. '.request_vote'
-	self._hearbet_func_name = 'raft.' .. self.name .. '.heartbeat'
+	self._hearbeat_func_name = 'raft.' .. self.name .. '.heartbeat'
+	self._is_leader_func_name = 'raft.' .. self.name .. '.is_leader'
 	self._get_leader_func_name = 'raft.' .. self.name .. '.get_leader'
 	
 	if _G.raft == nil then
 		_G.raft = {}
 	end
-	if _G.raft[self.name] == nil then
-		_G.raft[self.name] = {
-			request_vote = bind(self.request_vote, self),
-			heartbeat = bind(self.heartbeat, self),
-			get_leader = bind(self.get_leader, self),
-		}
+	if _G.raft[self.name] ~= nil then
+		log.warn("Another raft." .. self.name .. " callbacks detected in _G. Replacing them.")
 	end
+	_G.raft[self.name] = {
+		request_vote = bind(self.request_vote, self),
+		heartbeat = bind(self.heartbeat, self),
+		is_leader = bind(self.is_leader, self),
+		get_leader = bind(self.get_leader, self),
+	}
 	
 	self.S = {
 		FOLLOWER = 'follower',
@@ -90,30 +98,36 @@ function M:_init(cfg)
 	
 	self._nodes_count = #cfg.servers
 	self._id = box.info.server.id
-	self._uuid = box.info.server.uuid  -- TODO: need to have both id and uuid perhaps
+	self._uuid = box.info.server.uuid
 	self._state = self.S.FOLLOWER
 	self._term = 0
 	self._vote_count = 0
 	self._leader = nil
+	
+	self._debug_fiber = nil
+	self._debug_active = false
 end
 
 function M:start()
 	self._pool:connect()
 	self:start_election_timer()
 	
-	--- <debug fiber> ---
-	self.__debug_fiber = fiber.create(function()
-		while true do
-			fiber.self():name("debug_fiber")
-			log.info("id=%d; state=%s; term=%d; leader=%s", self._id, self._state, self._term, self._leader)
-			fiber.sleep(5)
-		end
-	end)
-	--- </debug fiber> ---
+	if self.debug then
+		self:start_debugger()
+	end
+end
+
+function M:stop()
+	self:stop_election_timer()
+	self:stop_heartbeater()
+	self:stop_debugger()
+	-- TODO: self._pool:disconnect()
+	
+	_G.raft[self.name] = nil
 end
 
 function M:is_leader()
-	return self._leader == self._id
+	return self._leader.uuid == self._uuid
 end
 
 function M:get_leader()
@@ -146,7 +160,9 @@ function M:restart_election_timer()
 end
 
 function M:reset_election_timer()
-	self._election_ch:put(1)
+	if self._election_timer_active then
+		self._election_ch:put(1)
+	end
 end
 
 function M:_election_timer()
@@ -160,14 +176,47 @@ function M:_election_timer()
 	end
 end
 
+function M:_is_good_for_candidate()
+	-- TODO: check all nodes and see if current node is good to be a leader, then return true
+	-- TODO: if not, return false
+	
+	local r = self._pool:eval("return box.info")
+	if not r then return true end
+	
+	-- for now it is that lag is the least
+	local minimum = {
+		uuid = -1,
+		lag = nil
+	}
+	for _,resp in pairs(r) do
+		log.info("[lag] id = %d; lag = %d", resp.server.id, resp.replication.lag)
+		if minimum.lag == nil or (resp.replication.lag <= minimum.lag and resp.server.uuid == self._uuid) or resp.replication.lag < minimum.lag then
+			minimum.uuid = resp.server.uuid
+			minimum.lag = resp.replication.lag
+		end
+	end
+	log.info("[lag] minimum = {uuid=%s; lag=%d}", minimum.uuid, minimum.lag)
+	
+	return minimum.uuid == self._uuid
+	-- return true
+end
+
 function M:_initiate_elections()
+	if not self:_is_good_for_candidate() then
+		log.info("node %d is not good to be a candidate")
+		return
+	end
+	
 	self._term = self._term + 1
 	self._state = self.S.CANDIDATE
 	
-	local r = self._pool:call(self._request_vote_func_name, self._term, self._id, "ABRACADABRA")
+	local r = self._pool:call(self._request_vote_func_name, self._term, self._uuid)
+	if not r then return end
+	
+	-- print(yaml.encode(r))
 	for k,v in pairs(r) do print(k, v[1]) end
 	-- finding majority
-	for node_id,response in pairs(r) do
+	for _,response in pairs(r) do
 		local decision = response[1][1]
 		
 		local vote = decision == "ack" and 1 or 0
@@ -178,15 +227,15 @@ function M:_initiate_elections()
 	
 	if self._vote_count > self._nodes_count / 2 then
 		-- elections won
-		log.info("node %d won elections", self._id)
+		log.info("node %d won elections [uuid = %s]", self._id, self._uuid)
 		self._state = self.S.LEADER
-		self._leader = self._id
+		self._leader = { id=self._id, uuid=self._uuid }
 		self._vote_count = 0
 		self._election_timer_active = false
 		self:start_heartbeater()
 	else
 		-- elections lost
-		log.info("node %d lost elections", self._id)
+		log.info("node %d lost elections [uuid = %s]", self._id, self._uuid)
 		self._state = self.S.FOLLOWER
 		self._leader = nil
 		self._vote_count = 0
@@ -202,7 +251,9 @@ function M:start_heartbeater()
 end
 
 function M:stop_heartbeater()
+	-- print("---- stopping heartbeater 1")
 	if self._heartbeat_fiber then
+		-- print("---- stopping heartbeater 2")
 		self._heartbeater_active = false
 		self._heartbeat_fiber:cancel()
 		self._heartbeat_fiber = nil
@@ -218,33 +269,58 @@ function M:_heartbeater()
 	self._heartbeater_active = true
 	while self._heartbeater_active do
 		log.info("performing heartbeat")
-		local r = self._pool:call(self._hearbet_func_name, self._term, self._id, self._leader)
+		local r = self._pool:call(self._hearbeat_func_name, self._term, self._uuid, self._leader)
 		fiber.sleep(self.HEARTBEAT_PERIOD)
+	end
+end
+
+function M:start_debugger()
+	if self._debug_fiber == nil then
+		self._debug_active = true
+		self._debug_fiber = fiber.create(function()
+			while self._debug_active do
+				fiber.self():name("debug_fiber")
+				log.info("state=%s; term=%d; id=%d; uuid=%s; leader=%s", self._state, self._term, self._id, self._uuid, self._leader and self._leader.uuid)
+				fiber.sleep(5)
+			end
+		end)
+	end
+end
+
+function M:stop_debugger()
+	if self._debug_fiber then
+		self._debug_active = false
+		self._debug_fiber:cancel()
+		self._debug_fiber = nil
 	end
 end
 
 ---------------- incoming ----------------
 
-function M:request_vote(term, id, candidate)
+function M:request_vote(term, uuid)
 	self:reset_election_timer()
 	local res
-	if self._id == id or self._term < term then  -- newer one
+	if self._uuid == uuid or self._term < term then  -- newer one
 		self._term = term
 		res = "ack"
 	else
 		res = "nack"
 	end
-	log.info("--> request_vote: term = %d; id = %d; res = %s", term, id, res)
+	log.info("--> request_vote: term = %d; uuid = %s; res = %s", term, uuid, res)
 	return res
 end
 
-function M:heartbeat(term, id, leader_id)
+function M:heartbeat(term, uuid, leader)
 	local res = "ack"
-	if self._id ~= id and self._term <= term then
-		log.info("--> heartbeat: term = %d; id = %d; leader_id = %d; res = %s", term, id, leader_id, res)
+	if self._uuid ~= uuid and self._term <= term then
+		self:start_election_timer()
 		self:reset_election_timer()
+		self:stop_heartbeater()
+		self._state = self.S.FOLLOWER
+		self._vote_count = 0
 		self._term = term
-		self._leader = leader_id
+		self._leader = leader
+		log.info("--> heartbeat: term = %d; uuid = %s; leader_id = %d; res = %s", term, uuid, leader.id, res)
 	end
 	return res
 end

@@ -44,7 +44,7 @@ end
 
 --------- elections ---------
 
-local MS_TO_S = 1/1000 * 10 -- FIXME
+local MS_TO_S = 1/1000 * 10 -- FIXME: (1/1000)
 
 local M = obj.class({}, 'Raft')
 
@@ -71,24 +71,14 @@ function M:_init(cfg)
 	self._pool.on_connected_one = bind(self._pool_on_connected_one, self)
 	self._pool.on_disconnect = bind(self._pool_on_disconnect, self)
 	
-	
-	self._request_vote_func_name = 'raft.' .. self.name .. '.request_vote'
-	self._hearbeat_func_name = 'raft.' .. self.name .. '.heartbeat'
-	self._is_leader_func_name = 'raft.' .. self.name .. '.is_leader'
-	self._get_leader_func_name = 'raft.' .. self.name .. '.get_leader'
-	
-	if _G.raft == nil then
-		_G.raft = {}
-	end
-	if _G.raft[self.name] ~= nil then
-		log.warn("Another raft." .. self.name .. " callbacks detected in _G. Replacing them.")
-	end
-	_G.raft[self.name] = {
-		request_vote = bind(self.request_vote, self),
-		heartbeat = bind(self.heartbeat, self),
-		is_leader = bind(self.is_leader, self),
-		get_leader = bind(self.get_leader, self),
-	}
+	self.FUNC = self:_make_global_funcs({
+		'request_vote',
+		'heartbeat',
+		'is_leader',
+		'get_leader',
+		'get_info',
+		'state_wait',
+	})
 	
 	self.S = {
 		FOLLOWER = 'follower',
@@ -99,13 +89,46 @@ function M:_init(cfg)
 	self._nodes_count = #cfg.servers
 	self._id = box.info.server.id
 	self._uuid = box.info.server.uuid
+	self._prev_state = nil
 	self._state = self.S.FOLLOWER
 	self._term = 0
 	self._vote_count = 0
 	self._leader = nil
 	
+	self._state_channels = setmetatable({}, {__mode='kv'})
+	
 	self._debug_fiber = nil
 	self._debug_active = false
+end
+
+function M:_make_global_funcs(func_names)
+	local F = {}
+	if _G.raft == nil then
+		_G.raft = {}
+	end
+	if _G.raft[self.name] ~= nil then
+		log.warn("Another raft." .. self.name .. " callbacks detected in _G. Replacing them.")
+	end
+	_G.raft[self.name] = {}
+	for _,f in ipairs(func_names) do
+		if self[f] then
+			_G.raft[self.name][f] = bind(self[f], self)
+			F[f] = 'raft.' .. self.name .. '.' .. f
+		else
+			log.warn("No function '" .. f .. "' found. Skipping...")
+		end
+	end
+	return F
+end
+
+function M:_set_state(new_state)
+	if new_state ~= self._prev_state then
+		self._prev_state = self._state
+		self._state = new_state
+		for _,v in pairs(self._state_channels) do
+			v:put(true)
+		end
+	end
 end
 
 function M:start()
@@ -124,14 +147,6 @@ function M:stop()
 	-- TODO: self._pool:disconnect()
 	
 	_G.raft[self.name] = nil
-end
-
-function M:is_leader()
-	return self._leader.uuid == self._uuid
-end
-
-function M:get_leader()
-	return self._leader
 end
 
 function M:_new_election_timeout()
@@ -208,9 +223,9 @@ function M:_initiate_elections()
 	end
 	
 	self._term = self._term + 1
-	self._state = self.S.CANDIDATE
+	self:_set_state(self.S.CANDIDATE)
 	
-	local r = self._pool:call(self._request_vote_func_name, self._term, self._uuid)
+	local r = self._pool:call(self.FUNC.request_vote, self._term, self._uuid)
 	if not r then return end
 	
 	-- print(yaml.encode(r))
@@ -228,7 +243,7 @@ function M:_initiate_elections()
 	if self._vote_count > self._nodes_count / 2 then
 		-- elections won
 		log.info("node %d won elections [uuid = %s]", self._id, self._uuid)
-		self._state = self.S.LEADER
+		self:_set_state(self.S.LEADER)
 		self._leader = { id=self._id, uuid=self._uuid }
 		self._vote_count = 0
 		self._election_timer_active = false
@@ -236,7 +251,7 @@ function M:_initiate_elections()
 	else
 		-- elections lost
 		log.info("node %d lost elections [uuid = %s]", self._id, self._uuid)
-		self._state = self.S.FOLLOWER
+		self:_set_state(self.S.FOLLOWER)
 		self._leader = nil
 		self._vote_count = 0
 		self._election_timer_active = true
@@ -269,7 +284,7 @@ function M:_heartbeater()
 	self._heartbeater_active = true
 	while self._heartbeater_active do
 		log.info("performing heartbeat")
-		local r = self._pool:call(self._hearbeat_func_name, self._term, self._uuid, self._leader)
+		local r = self._pool:call(self.FUNC.heartbeat, self._term, self._uuid, self._leader)
 		fiber.sleep(self.HEARTBEAT_PERIOD)
 	end
 end
@@ -295,7 +310,7 @@ function M:stop_debugger()
 	end
 end
 
----------------- incoming ----------------
+---------------- Global functions ----------------
 
 function M:request_vote(term, uuid)
 	self:reset_election_timer()
@@ -316,13 +331,45 @@ function M:heartbeat(term, uuid, leader)
 		self:start_election_timer()
 		self:reset_election_timer()
 		self:stop_heartbeater()
-		self._state = self.S.FOLLOWER
+		self:_set_state(self.S.FOLLOWER)
 		self._vote_count = 0
 		self._term = term
 		self._leader = leader
 		log.info("--> heartbeat: term = %d; uuid = %s; leader_id = %d; res = %s", term, uuid, leader.id, res)
 	end
 	return res
+end
+
+function M:is_leader()
+	return self._leader.uuid == self._uuid
+end
+
+function M:get_leader()
+	return self._leader
+end
+
+function M:get_info()
+	return {
+		id = self._id,
+		uuid = self._uuid,
+		state = self._state,
+		leader = self._leader,
+	}
+end
+
+function M:state_wait(timeout)
+	timeout = tonumber(timeout) or 0
+	
+	local ch = fiber.channel(1)
+	self._state_channels[ch] = ch
+	local m = ch:get(timeout)
+	self._state_channels[ch] = nil
+	
+	
+	
+	return {
+		state = self._state,
+	}
 end
 
 ---------------- pool functions ----------------

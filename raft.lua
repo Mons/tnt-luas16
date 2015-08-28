@@ -21,6 +21,7 @@ local uuid = require('uuid')
 local fiber = require('fiber')
 local obj = require('obj')
 local yaml = require('yaml')
+local msgpack = require('msgpack')
 
 local function bind(func, object)
     return function(...) return func(object, ...) end
@@ -93,7 +94,8 @@ function M:_init(cfg)
 	self._state = self.S.FOLLOWER
 	self._term = 0
 	self._vote_count = 0
-	self._leader = nil
+	self._prev_leader = msgpack.NULL
+	self._leader = msgpack.NULL
 	
 	self._state_channels = setmetatable({}, {__mode='kv'})
 	
@@ -125,10 +127,25 @@ function M:_set_state(new_state)
 	if new_state ~= self._prev_state then
 		self._prev_state = self._state
 		self._state = new_state
+		print("State: ", self._prev_state, self._state)
 		for _,v in pairs(self._state_channels) do
-			v:put(true)
+			v:put('state_change')
 		end
 	end
+end
+
+function M:_set_leader(new_leader)
+	if new_leader == nil or self._leader == nil or new_leader.uuid ~= self._leader.uuid then
+		self._prev_leader = self._leader
+		self._leader = new_leader
+		
+		if self._prev_leader ~= nil and self._leader ~= nil then
+			for _,v in pairs(self._state_channels) do
+				v:put('leader_change')
+			end
+		end
+	end
+	
 end
 
 function M:start()
@@ -223,6 +240,7 @@ function M:_initiate_elections()
 	end
 	
 	self._term = self._term + 1
+	self:_set_leader(msgpack.NULL)
 	self:_set_state(self.S.CANDIDATE)
 	
 	local r = self._pool:call(self.FUNC.request_vote, self._term, self._uuid)
@@ -244,7 +262,7 @@ function M:_initiate_elections()
 		-- elections won
 		log.info("node %d won elections [uuid = %s]", self._id, self._uuid)
 		self:_set_state(self.S.LEADER)
-		self._leader = { id=self._id, uuid=self._uuid }
+		self:_set_leader({ id=self._id, uuid=self._uuid })
 		self._vote_count = 0
 		self._election_timer_active = false
 		self:start_heartbeater()
@@ -252,7 +270,7 @@ function M:_initiate_elections()
 		-- elections lost
 		log.info("node %d lost elections [uuid = %s]", self._id, self._uuid)
 		self:_set_state(self.S.FOLLOWER)
-		self._leader = nil
+		self:_set_leader(msgpack.NULL)
 		self._vote_count = 0
 		self._election_timer_active = true
 	end
@@ -290,12 +308,25 @@ function M:_heartbeater()
 end
 
 function M:start_debugger()
+	local logger = function()
+		local s = "state=%s; term=%d; id=%d; uuid=%s; leader=%s"
+		local _nil = "nil"
+		local leader_str = _nil
+		if self._leader ~= nil then
+			leader_str = self._leader.uuid
+		end
+		return string.format(s, self._state or _nil,
+								self._term or _nil,
+								self._id or _nil,
+								self._uuid or _nil,
+								leader_str)
+	end
 	if self._debug_fiber == nil then
 		self._debug_active = true
 		self._debug_fiber = fiber.create(function()
 			while self._debug_active do
 				fiber.self():name("debug_fiber")
-				log.info("state=%s; term=%d; id=%d; uuid=%s; leader=%s", self._state, self._term, self._id, self._uuid, self._leader and self._leader.uuid)
+				log.info(logger())
 				fiber.sleep(5)
 			end
 		end)
@@ -334,7 +365,7 @@ function M:heartbeat(term, uuid, leader)
 		self:_set_state(self.S.FOLLOWER)
 		self._vote_count = 0
 		self._term = term
-		self._leader = leader
+		self:_set_leader(leader)
 		log.info("--> heartbeat: term = %d; uuid = %s; leader_id = %d; res = %s", term, uuid, leader.id, res)
 	end
 	return res
@@ -360,15 +391,22 @@ end
 function M:state_wait(timeout)
 	timeout = tonumber(timeout) or 0
 	
-	local ch = fiber.channel(1)
+	local ch = fiber.channel(5)
 	self._state_channels[ch] = ch
 	local m = ch:get(timeout)
 	self._state_channels[ch] = nil
 	
+	local event = 'none'
+	if m ~= nil then
+		event = m
+	end
 	
 	
 	return {
+		event = event,
 		state = self._state,
+		prev_state = self._prev_state,
+		info = self:get_info(),
 	}
 end
 

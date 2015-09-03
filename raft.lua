@@ -217,17 +217,23 @@ function M:_is_good_for_candidate()
 	
 	-- for now it is that lag is the least
 	local minimum = {
-		uuid = -1,
+		uuid = self._uuid,
 		lag = nil
 	}
 	for _,resp in pairs(r) do
-		log.info("[lag] id = %d; lag = %d", resp.server.id, resp.replication.lag)
-		if minimum.lag == nil or (resp.replication.lag <= minimum.lag and resp.server.uuid == self._uuid) or resp.replication.lag < minimum.lag then
-			minimum.uuid = resp.server.uuid
-			minimum.lag = resp.replication.lag
+		if resp.replication.status ~= 'off' and resp.replication.lag ~= nil then
+			log.info("[lag] id = %d; lag = %d", resp.server.id, resp.replication.lag)
+			if minimum.lag == nil or (resp.replication.lag <= minimum.lag and resp.server.uuid == self._uuid) or resp.replication.lag < minimum.lag then
+				minimum.uuid = resp.server.uuid
+				minimum.lag = resp.replication.lag
+			end
 		end
 	end
-	log.info("[lag] minimum = {uuid=%s; lag=%d}", minimum.uuid, minimum.lag)
+	if minimum.lag ~= nil then
+		log.info("[lag] minimum = {uuid=%s; lag=%d}", minimum.uuid, minimum.lag)
+	else
+		log.info("[lag] lag couldn't been determined. uuid = ", minimum.uuid)
+	end
 	
 	return minimum.uuid == self._uuid
 	-- return true
@@ -235,7 +241,7 @@ end
 
 function M:_initiate_elections()
 	if not self:_is_good_for_candidate() then
-		log.info("node %d is not good to be a candidate")
+		log.info("node %s is not good to be a candidate", self.uuid)
 		return
 	end
 	

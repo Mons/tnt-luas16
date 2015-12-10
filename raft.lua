@@ -347,6 +347,11 @@ function M:stop_debugger()
 	end
 end
 
+function M:call_on_leader(func_name, ...)
+	local c = self._pool:get_by_uuid(self._leader.uuid)
+	return c:call(func_name, ...)
+end
+
 ---------------- Global functions ----------------
 
 function M:request_vote(term, uuid)

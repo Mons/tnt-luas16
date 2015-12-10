@@ -1,3 +1,48 @@
+
+-- USAGE --
+-- spacer.create_space('space1', {
+-- 	{ name='id', type='num' },              -- 1
+-- 	{ name='name', type='str' },            -- 2
+-- 	{ name='type', type='str' },            -- 3
+-- 	{ name='status', type='str' },          -- 4
+-- 	{ name='extra', type='*' },             -- 5
+	
+-- }, {
+-- 	{ name = 'primary', type = 'hash', parts = { 'id' } },
+-- 	{ name = 'type', type = 'tree', unique = false, parts = { 'type', 'status' } },
+-- })
+
+-- spacer.create_space('space2', {
+-- 	{ name='id', type='num' },              -- 1
+-- 	{ name='name', type='str' },            -- 2
+-- 	{ name='type', type='str' },            -- 3
+-- 	{ name='status', type='str' },          -- 4
+-- 	{ name='extra', type='*' },             -- 5
+	
+-- }, {
+-- 	{ name = 'primary', type = 'hash', unique = true, parts = { 'id' } },
+-- }, {
+-- 	engine = 'sophia'
+-- })
+
+-- spacer.duplicate_space('space3', 'space1') -- will be identical to space1 (structure + indexes)
+-- spacer.duplicate_space('space4', 'space1', {
+-- 	indexes = {
+-- 		{ name = 'status', type = 'tree', unique = false, parts = { 'status' } },
+-- 	}
+-- }) -- will be identical to space1 (structure + indexes, extra indexes will be created)
+-- spacer.duplicate_space('space5', 'space1', {
+-- 	noindex = true
+-- }) -- will be identical to space1 (only structure, indexes will be omitted)
+-- spacer.duplicate_space('space6', 'space1', {
+-- 	noindex = true,
+-- 	indexes = {
+-- 		{ name = 'status', type = 'tree', unique = false, parts = { 'status' } },
+-- 	}
+-- }) -- will be identical to space1 (only structure, indexes will be omitted, extra indexes will be created)
+
+
+
 local FORMAT_KEY = 7
 
 local function init_tuple_info(space_name, format)

@@ -41,7 +41,7 @@
 -- 	}
 -- }) -- will be identical to space1 (only structure, indexes will be omitted, extra indexes will be created)
 
-
+local log = require('log')
 
 local FORMAT_KEY = 7
 
@@ -105,7 +105,7 @@ local function create_space(name, format, indexes, opts)
 
 	local sp = box.space[name]
 	if sp ~= nil then
-		print(string.format("Space \'%s\' is already created", name))
+		log.info("Space '%s' is already created", name)
 		return sp
 	end
 
@@ -138,7 +138,7 @@ function duplicate_space(new_space, old_space, opts)
 	
 	local sp = box.space[new_space]
 	if sp ~= nil then
-		print(string.format("Space \'%s\' is already created", new_space))
+		log.info("Space '%s' is already created", new_space)
 		return sp
 	end
 	
@@ -174,10 +174,12 @@ function duplicate_space(new_space, old_space, opts)
 	if extra_indexes then
 		init_indexes(new_space, extra_indexes)
 	end
+	return sp
 end
 
 
 return {
+	init_all_spaces_info = init_all_spaces_info,
 	create_space = create_space,
-	duplicate_space = duplicate_space
+	duplicate_space = duplicate_space,
 }

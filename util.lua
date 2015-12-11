@@ -37,21 +37,21 @@ end
 
 function util._arg_required(args, key)
 	if args[key] == nil then
-		E:raise(E.ARG_MISSING, key)
+		util.E:raise(util.E.ARG_MISSING, key)
 	end
 	return args[key]
 end
 
 function util.arg_required(args, key)
 	if args == nil then
-		E:raise(E.ARGS_MISSING)
+		util.E:raise(util.E.ARGS_MISSING)
 	end
 	util._arg_required(args, key)
 end
 
 function util.args_required(args, keys)
 	if args == nil then
-		E:raise(E.ARGS_MISSING)
+		util.E:raise(util.E.ARGS_MISSING)
 	end
 	for k, v in pairs(keys) do
 		util._arg_required(args, v)

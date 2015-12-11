@@ -51,10 +51,10 @@ end
 
 function queue:check_owner(k)
 	if not self._taken[k] then
-		E.raise(E.TASK_NOT_TAKEN, k)
+		queue.E.raise(queue.E.TASK_NOT_TAKEN, k)
 	end
 	if self._taken[k] ~= box.session.id() then
-		E.raise(E.TASK_TAKEN_NOT_BY_YOU, k, self._taken[k], box.session.id())
+		queue.E.raise(queue.E.TASK_TAKEN_NOT_BY_YOU, k, self._taken[k], box.session.id())
 	end
 	return true
 end

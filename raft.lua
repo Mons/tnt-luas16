@@ -127,7 +127,7 @@ function M:_set_state(new_state)
 	if new_state ~= self._prev_state then
 		self._prev_state = self._state
 		self._state = new_state
-		print("State: ", self._prev_state, self._state)
+		log.info("State: %s -> %s", self._prev_state, self._state)
 		for _,v in pairs(self._state_channels) do
 			v:put('state_change')
 		end
@@ -155,6 +155,7 @@ function M:start()
 	if self.debug then
 		self:start_debugger()
 	end
+	log.info("Started raft")
 end
 
 function M:stop()
@@ -202,7 +203,7 @@ function M:_election_timer()
 	while self._election_timer_active do
 		local v = self._election_ch:get(self:_new_election_timeout())
 		if v == nil then
-			log.info("Timeout exceeded. Starting elections.")
+			if self.debug then log.info("Timeout exceeded. Starting elections.") end
 			self:_initiate_elections()
 		end
 	end
@@ -222,17 +223,19 @@ function M:_is_good_for_candidate()
 	}
 	for _,resp in pairs(r) do
 		if resp.replication.status ~= 'off' and resp.replication.lag ~= nil then
-			log.info("[lag] id = %d; lag = %d", resp.server.id, resp.replication.lag)
+			if self.debug then log.info("[lag] id = %d; lag = %d", resp.server.id, resp.replication.lag) end
 			if minimum.lag == nil or (resp.replication.lag <= minimum.lag and resp.server.uuid == self._uuid) or resp.replication.lag < minimum.lag then
 				minimum.uuid = resp.server.uuid
 				minimum.lag = resp.replication.lag
 			end
 		end
 	end
-	if minimum.lag ~= nil then
-		log.info("[lag] minimum = {uuid=%s; lag=%d}", minimum.uuid, minimum.lag)
-	else
-		log.info("[lag] lag couldn't been determined. uuid = ", minimum.uuid)
+	if self.debug then
+		if minimum.lag ~= nil then
+			log.info("[lag] minimum = {uuid=%s; lag=%d}", minimum.uuid, minimum.lag)
+		else
+			log.info("[lag] lag couldn't been determined. uuid = ", minimum.uuid)
+		end
 	end
 	
 	return minimum.uuid == self._uuid
@@ -241,7 +244,7 @@ end
 
 function M:_initiate_elections()
 	if not self:_is_good_for_candidate() then
-		log.info("node %s is not good to be a candidate", self.uuid)
+		if self.debug then log.info("node %s is not good to be a candidate", self.uuid) end
 		return
 	end
 	
@@ -253,7 +256,7 @@ function M:_initiate_elections()
 	if not r then return end
 	
 	-- print(yaml.encode(r))
-	for k,v in pairs(r) do print(k, v[1]) end
+	if self.debug then for k,v in pairs(r) do print(k, v[1]) end end
 	-- finding majority
 	for _,response in pairs(r) do
 		local decision = response[1][1]
@@ -262,11 +265,11 @@ function M:_initiate_elections()
 		self._vote_count = self._vote_count + vote
 	end
 	
-	log.info("resulting votes count: %d/%d", self._vote_count, self._nodes_count)
+	if self.debug then log.info("resulting votes count: %d/%d", self._vote_count, self._nodes_count) end
 	
 	if self._vote_count > self._nodes_count / 2 then
 		-- elections won
-		log.info("node %d won elections [uuid = %s]", self._id, self._uuid)
+		if self.debug then log.info("node %d won elections [uuid = %s]", self._id, self._uuid) end
 		self:_set_state(self.S.LEADER)
 		self:_set_leader({ id=self._id, uuid=self._uuid })
 		self._vote_count = 0
@@ -274,7 +277,7 @@ function M:_initiate_elections()
 		self:start_heartbeater()
 	else
 		-- elections lost
-		log.info("node %d lost elections [uuid = %s]", self._id, self._uuid)
+		if self.debug then log.info("node %d lost elections [uuid = %s]", self._id, self._uuid) end
 		self:_set_state(self.S.FOLLOWER)
 		self:_set_leader(msgpack.NULL)
 		self._vote_count = 0
@@ -307,7 +310,7 @@ end
 function M:_heartbeater()
 	self._heartbeater_active = true
 	while self._heartbeater_active do
-		log.info("performing heartbeat")
+		if self.debug then log.info("performing heartbeat") end
 		local r = self._pool:call(self.FUNC.heartbeat, self._term, self._uuid, self._leader)
 		fiber.sleep(self.HEARTBEAT_PERIOD)
 	end
@@ -363,7 +366,7 @@ function M:request_vote(term, uuid)
 	else
 		res = "nack"
 	end
-	log.info("--> request_vote: term = %d; uuid = %s; res = %s", term, uuid, res)
+	if self.debug then log.info("--> request_vote: term = %d; uuid = %s; res = %s", term, uuid, res) end
 	return res
 end
 
@@ -377,7 +380,7 @@ function M:heartbeat(term, uuid, leader)
 		self._vote_count = 0
 		self._term = term
 		self:_set_leader(leader)
-		log.info("--> heartbeat: term = %d; uuid = %s; leader_id = %d; res = %s", term, uuid, leader.id, res)
+		if self.debug then log.info("--> heartbeat: term = %d; uuid = %s; leader_id = %d; res = %s", term, uuid, leader.id, res) end
 	end
 	return res
 end

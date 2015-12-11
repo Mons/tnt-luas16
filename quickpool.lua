@@ -13,7 +13,13 @@ function pool:_init(cfg)
 	for _,srv in ipairs(cfg.servers) do
 		local login = srv.login or cfg.login
 		local password = srv.password or cfg.password
-		local uri = login .. ':' .. password .. '@' .. srv.uri
+		
+		local uri
+		if login and password then
+			uri = login .. ':' .. password .. '@' .. srv.uri
+		else
+			uri = srv.uri
+		end
 		local zid = srv.zone or cfg.zone or 'default'
 		local node = {
 			peer = srv.uri,

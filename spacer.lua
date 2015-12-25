@@ -1,67 +1,62 @@
 
 -- USAGE --
--- spacer.create_space('space1', {
--- 	{ name='id', type='num' },              -- 1
--- 	{ name='name', type='str' },            -- 2
--- 	{ name='type', type='str' },            -- 3
--- 	{ name='status', type='str' },          -- 4
--- 	{ name='extra', type='*' },             -- 5
-	
--- }, {
--- 	{ name = 'primary', type = 'hash', parts = { 'id' } },
--- 	{ name = 'type', type = 'tree', unique = false, parts = { 'type', 'status' } },
--- })
 
--- spacer.create_space('space2', {
--- 	{ name='id', type='num' },              -- 1
--- 	{ name='name', type='str' },            -- 2
--- 	{ name='type', type='str' },            -- 3
--- 	{ name='status', type='str' },          -- 4
--- 	{ name='extra', type='*' },             -- 5
+--[[
+spacer.create_space('space1', {
+	{ name='id', type='num' },              -- 1
+	{ name='name', type='str' },            -- 2
+	{ name='type', type='str' },            -- 3
+	{ name='status', type='str' },          -- 4
+	{ name='extra', type='*' },             -- 5
 	
--- }, {
--- 	{ name = 'primary', type = 'hash', unique = true, parts = { 'id' } },
--- }, {
--- 	engine = 'sophia'
--- })
+}, {
+	{ name = 'primary', type = 'hash', parts = { 'id' } },
+	{ name = 'type', type = 'tree', unique = false, parts = { 'type', 'status' } },
+})
 
--- spacer.duplicate_space('space3', 'space1') -- will be identical to space1 (structure + indexes)
--- spacer.duplicate_space('space4', 'space1', {
--- 	indexes = {
--- 		{ name = 'status', type = 'tree', unique = false, parts = { 'status' } },
--- 	}
--- }) -- will be identical to space1 (structure + indexes, extra indexes will be created)
--- spacer.duplicate_space('space5', 'space1', {
--- 	noindex = true
--- }) -- will be identical to space1 (only structure, indexes will be omitted)
--- spacer.duplicate_space('space6', 'space1', {
--- 	noindex = true,
--- 	indexes = {
--- 		{ name = 'status', type = 'tree', unique = false, parts = { 'status' } },
--- 	}
--- }) -- will be identical to space1 (only structure, indexes will be omitted, extra indexes will be created)
+spacer.create_space('space2', {
+	{ name='id', type='num' },              -- 1
+	{ name='name', type='str' },            -- 2
+	{ name='type', type='str' },            -- 3
+	{ name='status', type='str' },          -- 4
+	{ name='extra', type='*' },             -- 5
+	
+}, {
+	{ name = 'primary', type = 'hash', unique = true, parts = { 'id' } },
+}, {
+	engine = 'sophia'
+})
+
+spacer.duplicate_space('space3', 'space1') -- will be identical to space1 (structure + indexes)
+spacer.duplicate_space('space4', 'space1', {
+	indexes = {
+		{ name = 'status', type = 'tree', unique = false, parts = { 'status' } },
+	}
+}) -- will be identical to space1 (structure + indexes, extra indexes will be created)
+spacer.duplicate_space('space5', 'space1', {
+	dupindex = false
+}) -- will be identical to space1 (only structure, indexes will be omitted)
+spacer.duplicate_space('space6', 'space1', {
+	dupindex = false,
+	indexes = {
+		{ name = 'status', type = 'tree', unique = false, parts = { 'status' } },
+	}
+}) -- will be identical to space1 (only structure, indexes will be omitted, extra indexes will be created)
+--]]
 
 local log = require('log')
 
-local FORMAT_KEY = 7
+local F = nil
 
 local function init_tuple_info(space_name, format)
-	if _G.F == nil then
-		_G.F = {}
+	if F == nil then
+		F = {}
 	end
-	_G.F[space_name] = {}
+	F[space_name] = {}
+	F[space_name]['_'] = {}
 	for k, v in pairs(format) do
-		_G.F[space_name][v.name] = k
-	end
-end
-
-local function init_tuple_info_full(space_name, format)
-	if _G.F == nil then
-		_G.F = {}
-	end
-	_G.F[space_name]['_'] = {}
-	for k, v in pairs(format) do
-		_G.F[space_name]['_'][v.name] = {
+		F[space_name][v.name] = k
+		F[space_name]['_'][v.name] = {
 			fieldno = k,
 			type = v.type
 		}
@@ -72,31 +67,63 @@ local function init_all_spaces_info()
 	local spaces = box.space._space:select{}
 	for _, sp in pairs(spaces) do
 		init_tuple_info(sp[3], sp[7])
-		init_tuple_info_full(sp[3], sp[7])
 	end
 end
-init_all_spaces_info()
 
-local function init_indexes(space_name, indexes)
+local function init_indexes(space_name, indexes, keep_obsolete)
 	local sp = box.space[space_name]
+	
+	local created_indexes = {}
+	
+	-- initializing new indexes
 	local name = space_name
-	for _, ind in ipairs(indexes) do
-		assert(ind.name ~= nil, "Index name cannot be null")
-		local ind_opts = {}
-		if ind.type ~= nil then ind_opts.type = ind.type end
-		if ind.unique ~= nil then ind_opts.unique = ind.unique end
-		if ind.parts ~= nil then
-			ind_opts.parts = {}
-			for _, p in ipairs(ind.parts) do
-				if F[name][p] ~= nil and F[name]['_'][p] ~= nil then
-					table.insert(ind_opts.parts, F[name][p])
-					table.insert(ind_opts.parts, F[name]['_'][p].type)
-				else
-					box.error{reason=string.format("Field %s.%s not found", name, p)}
+	if indexes ~= nil then
+		for _, ind in ipairs(indexes) do
+			assert(ind.name ~= nil, "Index name cannot be null")
+			local ind_opts = {}
+			ind_opts.id = ind.id
+			ind_opts.type = ind.type
+			ind_opts.unique = ind.unique
+			ind_opts.if_not_exists = ind.if_not_exists
+			
+			if ind.parts ~= nil then
+				ind_opts.parts = {}
+				for _, p in ipairs(ind.parts) do
+					if F[name][p] ~= nil and F[name]['_'][p] ~= nil then
+						table.insert(ind_opts.parts, F[name][p])
+						table.insert(ind_opts.parts, F[name]['_'][p].type)
+					else
+						box.error{reason=string.format("Field %s.%s not found", name, p)}
+					end
 				end
 			end
+			if sp.index[ind.name] ~= nil then
+				sp.index[ind.name]:alter(ind_opts)
+			else
+				sp:create_index(ind.name, ind_opts)
+			end
+			created_indexes[ind.name] = true
 		end
-		sp:create_index(ind.name, ind_opts)
+	end
+	if not created_indexes['primary'] then
+		box.error{reason=string.format("No primary index defined for space '%s'", space_name)}
+	end
+	
+	-- check obsolete indexes in space
+	if not keep_obsolete then
+		local sp_indexes = box.space._index:select{sp.id}
+		local indexes_names = {}
+		for _,ind in ipairs(sp_indexes) do
+			table.insert(indexes_names, ind[F._index.name])
+		end
+		for _,ind in ipairs(indexes_names) do
+			if ind ~= 'primary' and (not created_indexes['primary'] or not created_indexes[ind]) then
+				sp.index[ind]:drop()
+			end
+		end
+		if not created_indexes['primary'] then
+			sp.index['primary']:drop()
+		end
 	end
 end
 
@@ -104,19 +131,17 @@ local function create_space(name, format, indexes, opts)
 	assert(name ~= nil, "Space name cannot be null")
 
 	local sp = box.space[name]
-	if sp ~= nil then
-		log.info("Space '%s' is already created", name)
-		return sp
+	if sp == nil or (opts and opts.if_not_exists) then
+		sp = box.schema.space.create(name, opts)
+	else
+		log.info("Space '%s' is already created. Updating indexes and meta information.", name)
 	end
-
-	init_tuple_info(name, format)
-	init_tuple_info_full(name, format)
-
-	sp = box.schema.space.create(name, opts)
 	sp:format(format)
+	init_tuple_info(name, format)
 
-	if indexes ~= nil then
-		init_indexes(name, indexes)
+	init_indexes(name, indexes)
+	if not indexes then
+		log.warn("No indexes for space '%s' provided.", name)
 	end
 	return sp
 end
@@ -129,32 +154,29 @@ function duplicate_space(new_space, old_space, opts)
 		opts = {}
 	end
 	
-	local no_index = opts['noindex'] or false
+	local dupindex = opts['dupindex'] == nil or opts['dupindex'] == true
 	local extra_indexes = opts['indexes']
 	
-	opts['noindex'] = nil
+	opts['dupindex'] = nil
 	opts['indexes'] = nil
 	
-	
 	local sp = box.space[new_space]
-	if sp ~= nil then
-		log.info("Space '%s' is already created", new_space)
-		return sp
+	if sp == nil or opts.if_not_exists then
+		sp = box.schema.space.create(new_space, opts)
+	else
+		log.info("Space '%s' is already created. Updating indexes and meta information.", new_space)
 	end
-	
 	local format = box.space._space.index.name:get({old_space})[F._space.format]
 	
-	init_tuple_info(new_space, format)
-	init_tuple_info_full(new_space, format)
-	
-	sp = box.schema.space.create(new_space, opts)
 	sp:format(format)
+	init_tuple_info(new_space, format)
 	
-	if not no_index then  -- then copy indexes from old_space
+	local new_indexes = {}
+	if dupindex then  -- then copy indexes from old_space
+		log.info("Duplicating indexes for '%s'", new_space)
 		local old_space_id = box.space[old_space].id
 		local old_indexes = box.space._index:select({old_space_id})
 		
-		local new_indexes = {}
 		for k1, ind in ipairs(old_indexes) do
 			local new_index = {}
 			new_index['name'] = ind[F._index.name]
@@ -168,18 +190,22 @@ function duplicate_space(new_space, old_space, opts)
 			
 			table.insert(new_indexes, new_index)
 		end
-		init_indexes(new_space, new_indexes)
 	end
 	
 	if extra_indexes then
-		init_indexes(new_space, extra_indexes)
+		for _,ind in ipairs(extra_indexes) do
+			table.insert(new_indexes, ind)
+		end
 	end
+	init_indexes(new_space, new_indexes)
 	return sp
 end
 
 
+init_all_spaces_info()
+_G.F = F
 return {
-	init_all_spaces_info = init_all_spaces_info,
+	F = F,
 	create_space = create_space,
 	duplicate_space = duplicate_space,
 }

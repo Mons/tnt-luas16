@@ -13,6 +13,10 @@ function util.time()
 	return fiber.time()
 end
 
+function util.itime()
+	return 0ULL + fiber.time()
+end
+
 function util.print_table(table)
 	for key, value in pairs(table) do
 		print(key, value)

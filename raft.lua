@@ -45,7 +45,7 @@ end
 
 --------- elections ---------
 
-local MS_TO_S = 1/1000 * 10 -- FIXME: (1/1000)
+local MS_TO_S = 1/1000 -- FIXME: (1/1000)
 
 local M = obj.class({}, 'Raft')
 
@@ -77,7 +77,7 @@ function M:_init(cfg)
 		'heartbeat',
 		'is_leader',
 		'get_leader',
-		'get_info',
+		'info',
 		'state_wait',
 	})
 	
@@ -124,7 +124,7 @@ function M:_make_global_funcs(func_names)
 end
 
 function M:_set_state(new_state)
-	if new_state ~= self._prev_state then
+	if new_state ~= self._state then
 		self._prev_state = self._state
 		self._state = new_state
 		log.info("State: %s -> %s", self._prev_state, self._state)
@@ -393,7 +393,7 @@ function M:get_leader()
 	return self._leader
 end
 
-function M:get_info()
+function M:info()
 	return {
 		id = self._id,
 		uuid = self._uuid,
@@ -420,7 +420,7 @@ function M:state_wait(timeout)
 		event = event,
 		state = self._state,
 		prev_state = self._prev_state,
-		info = self:get_info(),
+		info = self:info(),
 	}
 end
 

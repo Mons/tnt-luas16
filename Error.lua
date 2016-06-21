@@ -26,8 +26,12 @@ function Error:register(errors)
 end
 
 function Error:raise(code_or_name, ...)
+	if code_or_name == nil then
+		print("Got an unknown error code or name in raise")
+		return
+	end
 	if self._msgs[code_or_name] == nil then
-		print(string.format("Unknown error code or name: %d", code_or_name))
+		print(string.format("Got an unknown error code or name in raise: %d", code_or_name))
 		return
 	end
 	box.error{

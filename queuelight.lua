@@ -9,7 +9,8 @@ local util = require('util')
 
 local STATUS = {
 	R = 'R',
-	T = 'T'
+	T = 'T',
+	B = 'B',
 }
 local DEFAULT_TIMEOUT = 60
 
@@ -56,7 +57,7 @@ function queue:check_owner(k)
 	if not self._taken[k] then
 		-- queue.E:raise(queue.E.TASK_NOT_TAKEN, k)
 	end
-	if self._taken[k] ~= box.session.id() then
+	if self._taken[k] ~= nil and self._taken[k] ~= box.session.id() then
 		queue.E:raise(queue.E.TASK_TAKEN_NOT_BY_YOU, k, self._taken[k], box.session.id())
 	end
 	return true
@@ -77,7 +78,9 @@ function queue:release(task_id,opt)
 
 	local sid = self._taken[task_id]
 	self._taken[task_id] = nil
-	self._consumers[sid][task_id] = nil
+	if self._consumers[sid] then
+		self._consumers[sid][task_id] = nil
+	end
 	return t
 end
 
@@ -89,7 +92,24 @@ function queue:done(task_id,opt)
 
 	local sid = self._taken[task_id]
 	self._taken[task_id] = nil
-	self._consumers[sid][task_id] = nil
+	if self._consumers[sid] then
+		self._consumers[sid][task_id] = nil
+	end
+	return t
+end
+
+function queue:bury(task_id,opt)
+	self:check_owner(task_id)
+	opt = opt or {}
+
+	t = self:set_status(task_id, STATUS.B)
+
+	local sid = self._taken[task_id]
+	self._taken[task_id] = nil
+	if self._consumers[sid] then
+		self._consumers[sid][task_id] = nil
+	end
+	t = box.space[self.space]:delete({task_id})
 	return t
 end
 

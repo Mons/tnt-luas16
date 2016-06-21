@@ -70,6 +70,55 @@ local function init_all_spaces_info()
 	end
 end
 
+local function get_changed_opts_for_index(existing_index, ind_opts)
+	if existing_index == nil or ind_opts == nil then
+		return nil
+	end
+	
+	local changed_opts = {}
+	local changed_opts_count = 0
+	
+	if ind_opts.unique == nil then
+		ind_opts.unique = true  -- default value of unique
+	end
+	
+	if existing_index.unique ~= ind_opts.unique then
+		changed_opts.unique = ind_opts.unique
+		changed_opts_count = changed_opts_count + 1
+	end
+	
+	if string.lower(existing_index.type) ~= string.lower(ind_opts.type) then
+		changed_opts.type = ind_opts.type
+		changed_opts_count = changed_opts_count + 1
+	end
+	
+	local parts_changed = false
+	if ind_opts.parts == nil then
+		ind_opts.parts = { 1, 'NUM' }  -- default value when parts = nil
+	else
+		for i, part in ipairs(existing_index.parts) do
+			local j = i * 2 - 1
+			local want_field_no = ind_opts.parts[j]
+			local want_field_type = ind_opts.parts[j + 1]
+			
+			if want_field_no ~= part.fieldno or string.lower(want_field_type) ~= string.lower(part.type) then
+				parts_changed = true
+			end
+		end
+	end
+	
+	if parts_changed then
+		changed_opts.parts = ind_opts.parts
+		changed_opts_count = changed_opts_count + 1
+	end
+
+	if changed_opts_count == 0 then
+		return nil
+	end
+	
+	return changed_opts
+end
+
 local function init_indexes(space_name, indexes, keep_obsolete)
 	local sp = box.space[space_name]
 	
@@ -97,9 +146,16 @@ local function init_indexes(space_name, indexes, keep_obsolete)
 					end
 				end
 			end
-			if sp.index[ind.name] ~= nil then
-				sp.index[ind.name]:alter(ind_opts)
+			local existing_index = sp.index[ind.name]
+			if existing_index ~= nil then
+				local changed_opts = get_changed_opts_for_index(existing_index, ind_opts)
+				
+				if changed_opts then
+					log.info("Altering index '%s' of space '%s'.", ind.name, space_name)
+					sp.index[ind.name]:alter(changed_opts)
+				end
 			else
+				log.info("Creating index '%s' of space '%s'.", ind.name, space_name)
 				sp:create_index(ind.name, ind_opts)
 			end
 			created_indexes[ind.name] = true
@@ -134,7 +190,7 @@ local function create_space(name, format, indexes, opts)
 	if sp == nil or (opts and opts.if_not_exists) then
 		sp = box.schema.space.create(name, opts)
 	else
-		log.info("Space '%s' is already created. Updating indexes and meta information.", name)
+		log.info("Space '%s' is already created. Updating meta information.", name)
 	end
 	sp:format(format)
 	init_tuple_info(name, format)
@@ -143,6 +199,7 @@ local function create_space(name, format, indexes, opts)
 	if not indexes then
 		log.warn("No indexes for space '%s' provided.", name)
 	end
+	log.info("Finished processing space '%s'.", name)
 	return sp
 end
 
@@ -164,7 +221,7 @@ function duplicate_space(new_space, old_space, opts)
 	if sp == nil or opts.if_not_exists then
 		sp = box.schema.space.create(new_space, opts)
 	else
-		log.info("Space '%s' is already created. Updating indexes and meta information.", new_space)
+		log.info("Space '%s' is already created. Updating meta information.", new_space)
 	end
 	local format = box.space._space.index.name:get({old_space})[F._space.format]
 	
@@ -198,6 +255,7 @@ function duplicate_space(new_space, old_space, opts)
 		end
 	end
 	init_indexes(new_space, new_indexes)
+	log.info("Finished processing space '%s'.", new_space)
 	return sp
 end
 

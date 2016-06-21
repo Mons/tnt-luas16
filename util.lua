@@ -1,12 +1,14 @@
 local msgpack = require('msgpack')
 local fiber = require('fiber')
 local Error = require('Error')
+local uuid = require('uuid')
 
 local util = {}
 util.E = Error{}
 util.E:register({
 	{ code = 201, name = 'ARG_MISSING', msg = "Field %s is missing" },
 	{ code = 202, name = 'ARGS_MISSING', msg = "Arguments are missing" },
+	{ code = 203, name = 'ARGS_MISSING_NAME', msg = "Argument '%s' is missing" },
 })
 
 function util.time()
@@ -53,9 +55,13 @@ function util.arg_required(args, key)
 	util._arg_required(args, key)
 end
 
-function util.args_required(args, keys)
+function util.args_required(args, keys, args_name)
 	if args == nil then
-		util.E:raise(util.E.ARGS_MISSING)
+		if args_name == nil then
+			util.E:raise(util.E.ARGS_MISSING)
+		else
+			util.E:raise(util.E.ARGS_MISSING_NAME, args_name)
+		end
 	end
 	for k, v in pairs(keys) do
 		util._arg_required(args, v)
@@ -77,6 +83,10 @@ function util.iter(index, ...)
 	}
 
 	return setmetatable(iterator, mt)
+end
+
+function util.uuid()
+	return uuid():str()
 end
 
 return util

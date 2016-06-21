@@ -25,7 +25,7 @@ function M:setup_shards()
 	
 	for group_id, group in ipairs(self.pool.peer_groups) do
 		shards[group_id] = {}
-		for _, srv in pairs(group) do
+		for _, srv in ipairs(group) do
 			table.insert(shards[group_id], srv)
 		end
 	end
@@ -64,7 +64,7 @@ end
 function M:space_operation(shard_key, space, operation, ...)
 	local shard, shard_id = self:shard(shard_key)
 	
-	local targets = shard
+	local targets = {shard}
 	if self.raft_enabled then
 		targets = self.pool:get_leaders(shard_id)
 	end
@@ -80,7 +80,7 @@ end
 function M:operation(shard_key, operation, ...)
 	local shard, shard_id = self:shard(shard_key)
 	
-	local targets = shard
+	local targets = {shard}
 	if self.raft_enabled then
 		targets = self.pool:get_leaders(shard_id)
 	end

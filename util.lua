@@ -1,10 +1,10 @@
 local msgpack = require('msgpack')
 local fiber = require('fiber')
-local Error = require('Error')
+local errorcode = require('errorcode')
 local uuid = require('uuid')
 
 local util = {}
-util.E = Error{}
+util.E = errorcode{}
 util.E:register({
 	{ code = 201, name = 'ARG_MISSING', msg = "Field %s is missing" },
 	{ code = 202, name = 'ARGS_MISSING', msg = "Arguments are missing" },

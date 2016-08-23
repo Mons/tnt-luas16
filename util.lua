@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 local fiber = require('fiber')
 local msgpack = require('msgpack')
 local uuid = require('uuid')
@@ -6,6 +7,15 @@ local errorcode = require('errorcode')
 
 local util = {}
 util.E = errorcode{}
+=======
+local msgpack = require('msgpack')
+local fiber = require('fiber')
+local Error = require('Error')
+local uuid = require('uuid')
+
+local util = {}
+util.E = Error{}
+>>>>>>> cede983a82cd21ce82307ca9d3ae93f42dab8991
 util.E:register({
 	{ code = 201, name = 'ARG_MISSING', msg = "Field %s is missing" },
 	{ code = 202, name = 'ARGS_MISSING', msg = "Arguments are missing" },

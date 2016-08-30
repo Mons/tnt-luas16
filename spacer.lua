@@ -96,7 +96,7 @@ local function get_changed_opts_for_index(existing_index, ind_opts)
 	if ind_opts.parts == nil then
 		ind_opts.parts = { 1, 'NUM' }  -- default value when parts = nil
 	else
-		for i, part in ipairs(existing_index.parts) do
+		for i, part in pairs(existing_index.parts) do
 			local j = i * 2 - 1
 			local want_field_no = ind_opts.parts[j]
 			local want_field_type = ind_opts.parts[j + 1]
@@ -137,7 +137,7 @@ local function init_indexes(space_name, indexes, keep_obsolete)
 			
 			if ind.parts ~= nil then
 				ind_opts.parts = {}
-				for _, p in ipairs(ind.parts) do
+				for _, p in pairs(ind.parts) do
 					if F[name][p] ~= nil and F[name]['_'][p] ~= nil then
 						table.insert(ind_opts.parts, F[name][p])
 						table.insert(ind_opts.parts, F[name]['_'][p].type)

@@ -263,7 +263,9 @@ end
 local function tuple_unpack(tuple, f_info)
 	local t = {}
 	for field_name, fieldno in pairs(f_info) do
-		t[field_name] = tuple[fieldno] or msgpack.NULL
+		if field_name ~= '_' then
+			t[field_name] = tuple[fieldno] or msgpack.NULL
+		end
 	end
 	return t
 end
@@ -271,7 +273,9 @@ end
 local function tuple_pack(t, f_info)
 	local tuple = {}
 	for field_name, fieldno in pairs(f_info) do
-		tuple[fieldno] = t[field_name]
+		if field_name ~= '_' then
+			tuple[fieldno] = t[field_name]
+		end
 	end
 	return box.tuple.new({tuple})
 end

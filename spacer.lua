@@ -277,7 +277,7 @@ local function tuple_pack(t, f_info)
 			tuple[fieldno] = t[field_name]
 		end
 	end
-	return box.tuple.new({tuple})
+	return box.tuple.new(tuple)
 end
 
 

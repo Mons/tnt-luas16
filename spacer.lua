@@ -45,6 +45,7 @@ spacer.duplicate_space('space6', 'space1', {
 --]]
 
 local log = require('log')
+local msgpack = require('msgpack')
 
 local F = nil
 
@@ -259,11 +260,30 @@ function duplicate_space(new_space, old_space, opts)
 	return sp
 end
 
+local function tuple_unpack(tuple, f_info)
+	local t = {}
+	for field_name, fieldno in pairs(f_info) do
+		t[field_name] = tuple[fieldno] or msgpack.NULL
+	end
+	return t
+end
+
+local function tuple_pack(t, f_info)
+	local tuple = {}
+	for field_name, fieldno in pairs(f_info) do
+		tuple[fieldno] = t[field_name]
+	end
+	return box.tuple.new({tuple})
+end
+
 
 init_all_spaces_info()
-_G.F = F
+rawset(_G, 'F', F)
+
 return {
 	F = F,
 	create_space = create_space,
 	duplicate_space = duplicate_space,
+	tuple_unpack = tuple_unpack,
+	tuple_pack = tuple_pack,
 }

@@ -5,7 +5,7 @@ local obj = require('obj')
 local uuid = require('uuid')
 
 local errorcode = require('errorcode')
-local util = require('util')
+local tntutil = require('tntutil')
 
 local STATUS = {
 	R = 'R',
@@ -27,7 +27,7 @@ queue.E:register({
 local _wait = {}
 
 function queue:_init(opts)
-	util.args_required(opts, {'space', 'index_queue', 'index_primary', 'f_id', 'f_status'})
+	tntutil.args_required(opts, {'space', 'index_queue', 'index_primary', 'f_id', 'f_status'})
 	self._consumers = {}
 	self._taken = {}
 	self._wseq = 1
@@ -121,7 +121,7 @@ function queue:taken(task)
 	local k = task[self.f_id]
 	local t = self:set_status(k, STATUS.T)
 	
-	self._consumers[sid][k] = { util.time(), box.session.peer(sid), t }
+	self._consumers[sid][k] = { tntutil.time(), box.session.peer(sid), t }
 	self._taken[k] = sid
 	return t
 end
@@ -139,7 +139,7 @@ end
 
 function queue:on_disconnect(sid)
 	local peer = '<PEERNAME>' -- box.session.peer(sid)
-	local now = util.time()
+	local now = tntutil.time()
 
 	if self._consumers[sid] ~= nil then
 		local consumers = self._consumers[sid]

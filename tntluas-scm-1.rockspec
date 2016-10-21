@@ -19,6 +19,7 @@ build = {
         ['connpool'] = 'connpool.lua',
         ['errorcode'] = 'errorcode.lua',
         ['queuelight'] = 'queuelight.lua',
+        ['tntutil'] = 'tntutil.lua',
     }
 }
 

@@ -94,6 +94,26 @@ local function get_changed_opts_for_index(existing_index, ind_opts)
 		changed_opts_count = changed_opts_count + 1
 	end
 	
+	if ind_opts.type == 'rtree' then
+		if ind_opts.dimension == nil then
+			ind_opts.dimension = 2  -- default value for dimension
+		end
+		
+		if ind_opts.distance == nil then
+			ind_opts.distance = 'euclid'  -- default value for distance
+		end
+		
+		if existing_index.dimension ~= ind_opts.dimension then
+			changed_opts.dimension = ind_opts.dimension
+			changed_opts_count = changed_opts_count + 1
+		end
+		
+		if existing_index.distance ~= ind_opts.distance then
+			changed_opts.distance = ind_opts.distance
+			changed_opts_count = changed_opts_count + 1
+		end
+	end
+	
 	local parts_changed = false
 	if ind_opts.parts == nil then
 		ind_opts.parts = { 1, 'NUM' }  -- default value when parts = nil
@@ -133,9 +153,19 @@ local function init_indexes(space_name, indexes, keep_obsolete)
 			assert(ind.name ~= nil, "Index name cannot be null")
 			local ind_opts = {}
 			ind_opts.id = ind.id
-			ind_opts.type = ind.type
+			ind_opts.type = string.lower(ind.type)
 			ind_opts.unique = ind.unique
 			ind_opts.if_not_exists = ind.if_not_exists
+			
+			if ind_opts.type == 'rtree' then
+				if ind.dimension ~= nil then
+					ind_opts.dimension = ind.dimension
+				end
+				
+				if ind.distance ~= nil then
+					ind_opts.distance = ind.distance
+				end
+			end
 			
 			if ind.parts ~= nil then
 				ind_opts.parts = {}

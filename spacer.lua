@@ -158,29 +158,29 @@ local function init_indexes(space_name, indexes, keep_obsolete)
 				end
 			else
 				log.info("Creating index '%s' of space '%s'.", ind.name, space_name)
-				sp:create_index(ind.name, ind_opts)
+				existing_index = sp:create_index(ind.name, ind_opts)
 			end
-			created_indexes[ind.name] = true
+			created_indexes[existing_index.id] = true
 		end
 	end
-	if not created_indexes['primary'] then
-		box.error{reason=string.format("No primary index defined for space '%s'", space_name)}
+	if not created_indexes[0] then
+		box.error{reason=string.format("No index #0 defined for space '%s'", space_name)}
 	end
 	
 	-- check obsolete indexes in space
 	if not keep_obsolete then
-		local sp_indexes = box.space._index:select{sp.id}
-		local indexes_names = {}
+		local sp_indexes = box.space._index:select({sp.id})
 		for _,ind in ipairs(sp_indexes) do
-			table.insert(indexes_names, ind[F._index.name])
-		end
-		for _,ind in ipairs(indexes_names) do
-			if ind ~= 'primary' and (not created_indexes['primary'] or not created_indexes[ind]) then
-				sp.index[ind]:drop()
+			ind = {id = ind[F._index.iid], name = ind[F._index.name]}
+			
+			if ind.id ~= 0 and (not created_indexes[0] or not created_indexes[ind.id]) then
+				log.info("Dropping index %d/'%s' of space '%s'.", ind.id, ind.name, space_name)
+				sp.index[ind.id]:drop()
 			end
 		end
-		if not created_indexes['primary'] then
-			sp.index['primary']:drop()
+		if not created_indexes[0] then
+			log.info("Dropping index #0 of space '%s'.", space_name)
+			sp.index[0]:drop()
 		end
 	end
 end

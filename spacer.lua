@@ -83,12 +83,13 @@ local function get_changed_opts_for_index(existing_index, ind_opts)
 		ind_opts.unique = true  -- default value of unique
 	end
 	
-	if existing_index.unique ~= ind_opts.unique then
+	local index_type = string.lower(existing_index.type)
+	if index_type ~= 'bitset' and index_type ~= 'rtree' and existing_index.unique ~= ind_opts.unique then
 		changed_opts.unique = ind_opts.unique
 		changed_opts_count = changed_opts_count + 1
 	end
 	
-	if string.lower(existing_index.type) ~= string.lower(ind_opts.type) then
+	if index_type ~= string.lower(ind_opts.type) then
 		changed_opts.type = ind_opts.type
 		changed_opts_count = changed_opts_count + 1
 	end

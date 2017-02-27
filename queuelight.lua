@@ -71,7 +71,7 @@ function queue:release(task_id,opt)
 	self:check_owner(task_id)
 	opt = opt or {}
 
-	t = self:set_status(task_id, STATUS.R)
+	local t = self:set_status(task_id, STATUS.R)
 	if t and not opt['no_wakeup'] then
 		self:wakeup(t)
 	end
@@ -88,7 +88,7 @@ function queue:done(task_id,opt)
 	self:check_owner(task_id)
 	opt = opt or {}
 
-	t = self:set_status(task_id, STATUS.R)
+	local t = self:set_status(task_id, STATUS.R)
 
 	local sid = self._taken[task_id]
 	self._taken[task_id] = nil
@@ -102,7 +102,7 @@ function queue:bury(task_id,opt)
 	self:check_owner(task_id)
 	opt = opt or {}
 
-	t = self:set_status(task_id, STATUS.B)
+	local t = self:set_status(task_id, STATUS.B)
 
 	local sid = self._taken[task_id]
 	self._taken[task_id] = nil
@@ -138,18 +138,21 @@ function queue:wait(wait_time)
 end
 
 function queue:on_disconnect(sid)
-	local peer = '<PEERNAME>' -- box.session.peer(sid)
+	local peer = tostring(sid) -- box.session.peer(sid)
 	local now = tntutil.time()
 
 	if self._consumers[sid] ~= nil then
 		local consumers = self._consumers[sid]
 		for k,rec in pairs(consumers) do
-			time, peer, task = unpack(rec)
+			local time, peer, task = unpack(rec)
 
 			local v = box.space[self.space].index[self.index_primary]:get({k})
 
 			if v ~= nil and v[self.f_status] == STATUS.T then
-				log.info("[ERR] Requeue: %s back to %s by disconnect from %d/%s; taken=%0.6fs", k, STATUS.R, sid, peer, tonumber(now - time))
+				log.info(
+					"[ERR] Requeue: %s back to %s by disconnect from %d/%s; taken=%0.6fs",
+					k, STATUS.R, sid, peer, tonumber(now - time)
+				)
 				v = self:release(v[self.f_id])
 			end
 		end

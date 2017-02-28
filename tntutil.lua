@@ -25,6 +25,10 @@ function util.print_table(table)
 	end
 end
 
+function util.pprint(obj)
+	print(require('yaml').encode(obj))
+end
+
 function util.get_or_null(table, key)
 	if table[key] == nil then
 		return msgpack.NULL

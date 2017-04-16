@@ -47,12 +47,42 @@ spacer.duplicate_space('space6', 'space1', {
 local log = require('log')
 local msgpack = require('msgpack')
 
-local F = nil
+local F = {}
+local T = {}
+
+local function _tuple2hash ( f )
+	local idx = {}
+	for k,v in pairs(f) do
+		if type(v) == 'number' then
+			idx[ v ] = k
+		end
+	end
+	local rows = {}
+	for k,v in ipairs(idx) do
+		table.insert(rows,"\t"..v.." = t["..tostring(k).."];\n")
+	end
+	return dostring("return function(t) return {\n"..table.concat(rows, "").."} end\n")
+end
+
+local function _hash2tuple ( f )
+	local idx = {}
+	for k,v in pairs(f) do
+		if type(v) == 'number' then
+			idx[ v ] = k
+		end
+	end
+	local rows = {}
+	for k,v in ipairs(idx) do
+		if k < #idx then
+			table.insert(rows,"\th."..v..",\n")
+		else
+			table.insert(rows,"\th."..v.." or require'msgpack'.NULL\n")
+		end
+	end
+	return dostring("return function(h) return box.tuple.new({\n"..table.concat(rows, "").."}) end\n")
+end
 
 local function init_tuple_info(space_name, format)
-	if F == nil then
-		F = {}
-	end
 	F[space_name] = {}
 	F[space_name]['_'] = {}
 	for k, v in pairs(format) do
@@ -62,6 +92,10 @@ local function init_tuple_info(space_name, format)
 			type = v.type
 		}
 	end
+	T[space_name] = {}
+	T[space_name].hash = _tuple2hash( F[space_name] )
+	T[space_name].dict = T[space_name].hash
+	T[space_name].tuple = _hash2tuple( F[space_name] )
 end
 
 local function init_all_spaces_info()
@@ -314,9 +348,11 @@ end
 
 init_all_spaces_info()
 rawset(_G, 'F', F)
+rawset(_G, 'T', T)
 
 return {
 	F = F,
+	T = T,
 	create_space = create_space,
 	duplicate_space = duplicate_space,
 	tuple_unpack = tuple_unpack,

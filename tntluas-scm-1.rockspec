@@ -2,7 +2,7 @@ package = 'tntluas'
 version = 'scm-1'
 source  = {
     url    = 'git://github.com/igorcoding/tnt-luas16.git',
-    branch = 'master',
+    branch = 'queuelight',
 }
 description = {
     summary  = "Various useful tarantool luas",

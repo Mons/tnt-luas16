@@ -15,7 +15,6 @@ dependencies = {
 build = {
     type = 'builtin',
     modules = {
-        ['spacer'] = 'spacer.lua',
         ['connpool'] = 'connpool.lua',
         ['errorcode'] = 'errorcode.lua',
         ['queuelight'] = 'queuelight.lua',

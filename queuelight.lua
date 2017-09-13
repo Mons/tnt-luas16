@@ -8,9 +8,10 @@ local errorcode = require('errorcode')
 local tntutil = require('tntutil')
 
 local STATUS = {
-	R = 'R',
-	T = 'T',
-	B = 'B',
+	READY = 'r',
+	TAKEN = 't',
+	EXECUTED = '-',
+	BURIED = '!',
 }
 local DEFAULT_TIMEOUT = 60
 
@@ -45,12 +46,11 @@ end
 
 
 function queue:wakeup(t)
-	if t[self.f_status] ~= STATUS.R then return end
+	if t[self.f_status] ~= STATUS.READY then return end
 	for _, v in pairs(_wait) do
 		v:put(t, 0)
 		return
 	end
-	-- print("No waits")
 end
 
 function queue:check_owner(k)
@@ -67,12 +67,12 @@ function queue:set_status(task_id, status)
 	return box.space[self.space]:update({task_id}, {{'=', self.f_status, status}})
 end
 
-function queue:release(task_id,opt)
+function queue:_action(task_id, status, do_wakeup, do_delete, opt)
 	self:check_owner(task_id)
 	opt = opt or {}
 
-	local t = self:set_status(task_id, STATUS.R)
-	if t and not opt['no_wakeup'] then
+	local t = self:set_status(task_id, status)
+	if do_wakeup and t and not opt['no_wakeup'] then
 		self:wakeup(t)
 	end
 
@@ -81,36 +81,30 @@ function queue:release(task_id,opt)
 	if self._consumers[sid] then
 		self._consumers[sid][task_id] = nil
 	end
+	if do_delete then
+		t = box.space[self.space]:delete({task_id})
+	end
 	return t
 end
 
-function queue:done(task_id,opt)
-	self:check_owner(task_id)
-	opt = opt or {}
+function queue:release(task_id, opt)
+	return self:_action(task_id, STATUS.READY, true, false, opt)
+end
 
-	local t = self:set_status(task_id, STATUS.R)
+function queue:ack(task_id, opt)
+	return self:_action(task_id, STATUS.EXECUTED, false, true, opt)
+end
 
-	local sid = self._taken[task_id]
-	self._taken[task_id] = nil
-	if self._consumers[sid] then
-		self._consumers[sid][task_id] = nil
-	end
-	return t
+function queue:done(task_id, opt)
+	return self:_action(task_id, STATUS.READY, false, false, opt)
 end
 
 function queue:bury(task_id,opt)
-	self:check_owner(task_id)
-	opt = opt or {}
+	return self:_action(task_id, STATUS.BURIED, false, false, opt)
+end
 
-	local t = self:set_status(task_id, STATUS.B)
-
-	local sid = self._taken[task_id]
-	self._taken[task_id] = nil
-	if self._consumers[sid] then
-		self._consumers[sid][task_id] = nil
-	end
-	t = box.space[self.space]:delete({task_id})
-	return t
+function queue:delete(task_id, opt)
+	return self:_action(task_id, STATUS.EXECUTED, false, true, opt)
 end
 
 function queue:taken(task)
@@ -119,7 +113,7 @@ function queue:taken(task)
 		self._consumers[sid] = {}
 	end
 	local k = task[self.f_id]
-	local t = self:set_status(k, STATUS.T)
+	local t = self:set_status(k, STATUS.TAKEN)
 	
 	self._consumers[sid][k] = { tntutil.time(), box.session.peer(sid), t }
 	self._taken[k] = sid
@@ -148,10 +142,10 @@ function queue:on_disconnect(sid)
 
 			local v = box.space[self.space].index[self.index_primary]:get({k})
 
-			if v ~= nil and v[self.f_status] == STATUS.T then
+			if v ~= nil and v[self.f_status] == STATUS.TAKEN then
 				log.info(
 					"[ERR] Requeue: %s back to %s by disconnect from %d/%s; taken=%0.6fs",
-					k, STATUS.R, sid, peer, tonumber(now - time)
+					k, STATUS.READY, sid, peer, tonumber(now - time)
 				)
 				v = self:release(v[self.f_id])
 			end
